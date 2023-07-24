@@ -1,0 +1,89 @@
+pipeline {
+    agent any
+    triggers {
+       // poll repo every 2 minute for changes
+       pollSCM('H/3 * * * *')
+   }
+    tools{
+        maven 'Maven-3.9.3'
+    }
+    environment {
+        GIT_REPO = 'git@github.com:samin-irtiza-bjit/Final_Project_LMS.git'
+        EC2_HOST = '34.217.178.107'
+    }
+    stages {
+        stage('Git Pull') {
+            steps {
+                git branch: 'main', credentialsId: 'github-key', url: env.GIT_REPO
+                sh "sed -i 's|mysql-service:3306/sparklmsdb|team-kernull-rds.cjldgoxvvwoc.us-west-2.rds.amazonaws.com:3306/saminsparklms|g' src/main/resources/application.properties"
+                sh "sed -i 's|spring.datasource.username = root|spring.datasource.username = samin|g' src/main/resources/application.properties"
+                sh "sed -i 's|spring.datasource.password =|spring.datasource.password = '12345678'|g' src/main/resources/application.properties"
+
+            }
+        }
+        stage('Write Service File'){
+            steps{
+                script{
+                    withCredentials([sshUserPrivateKey(credentialsId: 'aws-ec2', keyFileVariable: 'identity', passphraseVariable: 'passPhrase', usernameVariable: 'userName')]) {
+                        def writeService="scp -i ${identity} -o StrictHostKeyChecking=no \$(pwd)/jarrunner.service  ${userName}@${EC2_HOST}:/tmp"
+                        sh writeService
+                        }
+                   // sshagent(credentials: ['aws-ec2']){
+                     //   sh '''
+                    //        sudo cp /tmp/jarrunner.service etc/systemd/system/multi-user.target.wants
+                    //    '''
+                    //}
+                }
+            }
+        }
+        stage('Build Application'){
+            steps{
+                //sh 'chmod +x mvnw'
+                sh 'mvn clean install'
+            }
+        }
+
+        stage('Deploy to EC2'){
+            steps{
+                script{
+                    // sshPublisher(publishers: [sshPublisherDesc(configName: 'AWS EC2', transfers: [sshTransfer(cleanRemote: false, excludes: '', execCommand: 'pkill java; java -jar /tms/spark-lms-0.0.1-SNAPSHOT.jar &', execTimeout: 120000, flatten: false, makeEmptyDirs: false, noDefaultExcludes: false, patternSeparator: '[, ]+', remoteDirectory: '', remoteDirectorySDF: false, removePrefix: 'target/', sourceFiles: 'target/spark-lms-0.0.1-SNAPSHOT.jar')], usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: false)])
+                    withCredentials([sshUserPrivateKey(credentialsId: 'aws-ec2', keyFileVariable: 'identity', passphraseVariable: 'passPhrase', usernameVariable: 'userName')]) {
+                        def scpCommand='scp -i ${identity} -o StrictHostKeyChecking=no \$(pwd)/target/*.jar ${userName}@${EC2_HOST}:/tmp'
+                        sh scpCommand
+                        //def killCommand="ssh -i ${identity} -o StrictHostKeyChecking=no  ${userName}@${EC2_HOST} 'pkill java || true'"
+                        //sh killCommand
+                        //def sshCommand="ssh -i ${identity} -o StrictHostKeyChecking=no  ${userName}@${EC2_HOST} 'nohup java -jar /tmp/spark-lms-0.0.1-SNAPSHOT.jar >/dev/null 2>&1 &'"
+                        //sh sshCommand
+                        def restartServiceCommand="ssh -i ${identity} -o StrictHostKeyChecking=no  ${userName}@${EC2_HOST} 'systemctl restart jarrunner.service'"
+                        sh restartServiceCommand
+                    }
+                }
+                
+                
+                
+                
+                
+                // script{
+                //     def remote = [:]
+                //     remote.name= "ec2"
+                //     // remote.fileTransfer='SCP'
+                //     remote.host = "34.217.178.107"
+                //     remote.allowAnyHosts = true
+                //     withCredentials([sshUserPrivateKey(credentialsId: 'aws-ec2', keyFileVariable: 'identity', passphraseVariable: 'passPhrase', usernameVariable: 'userName')]) {
+                //         remote.user = userName
+                //         remote.identity = identity
+                //         remote.passphrase= ''
+                //         // sshPut remote: remote, from: 'target/spark-lms-0.0.1-SNAPSHOT.jar', into: '/tmp'
+                //         sshCommand remote: remote, command: 'pkill java &2>/dev/null'
+                //         sshCommand remote: remote, command: 'java -jar /tmp/spark-lms-0.0.1-SNAPSHOT.jar &1>/dev/null'
+                //     }
+                // }
+            }
+        }
+    }
+    post { 
+        always { 
+            cleanWs()
+        }
+    }
+}

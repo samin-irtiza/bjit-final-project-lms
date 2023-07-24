@@ -1,0 +1,58 @@
+pipeline {
+    agent any
+    triggers {
+       // poll repo every 2 minute for changes
+       // pollSCM('H/2 * * * *')
+        githubPush()
+   }
+    tools{
+        maven 'Maven-3.9.3'
+    }
+    environment {
+        GIT_REPO = 'git@github.com:samin-irtiza-bjit/Final_Project_LMS.git'
+        VAULT_PASSWORD = credentials('ansible-vault-password')
+    }
+    stages {
+        stage('Git Pull') {
+            steps {
+                git branch: 'main', credentialsId: 'github-key', url: env.GIT_REPO
+                sh('echo ${VAULT_PASSWORD} > vault_pass')
+                sh 'ansible-playbook --vault-id vault_pass aws_playbooks/update_db_cred.yml'
+            }
+        }
+        
+        stage('Get Instance IP'){
+            steps{
+                sh 'ansible-playbook --vault-id vault_pass aws_playbooks/inventory_updater.yml'
+            }
+        }
+        
+        stage('Setup Environment'){
+            steps{
+                sh 'ansible-playbook --vault-id vault_pass aws_playbooks/setup.yml'
+            }
+        }
+
+        stage('Build Application'){
+            steps{
+                //sh 'chmod +x mvnw'
+                sh 'mvn clean install'
+            }
+        }
+        stage('Deploy to EC2'){
+            steps{
+                sh 'ansible-playbook --vault-id vault_pass aws_playbooks/deploy.yml'
+            }
+        }
+        stage('Refresh Autoscaled Instances'){
+            steps{
+                sh 'ansible-playbook --vault-id vault_pass aws_playbooks/autoscale_refresh.yml'
+            }        
+        }
+    }
+    post { 
+        always { 
+            cleanWs()
+        }
+    }
+}

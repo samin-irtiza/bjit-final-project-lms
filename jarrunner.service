@@ -1,0 +1,14 @@
+[Unit]
+Description=Spark LMS
+
+[Service]
+User=ec2-user
+WorkingDirectory=/tmp
+ExecStart=/usr/bin/java -jar spark-lms-0.0.1-SNAPSHOT.jar
+SuccessExitStatus=143
+TimeoutStopSec=10
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
